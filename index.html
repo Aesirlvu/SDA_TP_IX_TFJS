@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Predicción con TensorFlow.js</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+            font-family: sans-serif;
+            background-color: #f0f0f0;
+        }
+
+        input, button {
+            padding: 10px;
+            margin: 10px;
+            font-size: 16px;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        #resultado {
+            font-weight: bold;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Modelo de predicción: y = 2x + 6</h1>
+    <p id="estado">Entrenando el modelo...</p>
+    
+    <input type="number" id="inputX" placeholder="Ingresa un valor de X" disabled>
+    <button onclick="predecir()" disabled id="btnPredecir">Predecir</button>
+
+    <p id="resultado"></p>
+
+    <script>
+        let model;
+
+        async function entrenarModelo() {
+            model = tf.sequential();
+            model.add(tf.layers.dense({ units: 1, inputShape: [1] }));
+            model.compile({ loss: 'meanSquaredError', optimizer: 'sgd' });
+
+            const xs = tf.tensor2d([-6, -5, -4, -3, -2, -1, 0, 1, 2], [9, 1]);
+            const ys = tf.tensor2d([-6, -4, -2, 0, 2, 4, 6, 8, 10], [9, 1]);
+
+            await model.fit(xs, ys, {
+                epochs: 350,
+                callbacks: {
+                    onEpochEnd: (epoch, logs) => {
+                        if (epoch % 50 === 0) {
+                            document.getElementById('estado').innerText = `Entrenando... Época: ${epoch}`;
+                        }
+                    },
+                    onTrainEnd: () => {
+                        document.getElementById('estado').innerText = "✅ Entrenamiento finalizado. Modelo listo para usar.";
+                        document.getElementById('inputX').disabled = false;
+                        document.getElementById('btnPredecir').disabled = false;
+                    }
+                }
+            });
+        }
+
+        async function predecir() {
+            const xInput = parseFloat(document.getElementById('inputX').value);
+            if (isNaN(xInput)) {
+                document.getElementById('resultado').innerText = "Por favor, ingresa un número válido.";
+                return;
+            }
+
+            const inputTensor = tf.tensor2d([xInput], [1, 1]);
+            const prediction = model.predict(inputTensor);
+            const yValue = (await prediction.data())[0];
+
+            document.getElementById('resultado').innerText = `Para x = ${xInput}, y = ${yValue.toFixed(2)}`;
+        }
+
+        entrenarModelo();
+    </script>
+</body>
+</html>
