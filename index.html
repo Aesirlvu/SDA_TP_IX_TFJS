@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Predicción con TensorFlow.js</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
     <style>
         body {
             display: flex;
@@ -35,16 +36,64 @@
 <body>
     <h1>Modelo de predicción: y = 2x + 6</h1>
     <p id="estado">Entrenando el modelo...</p>
-    
-    <input type="number" id="inputX" placeholder="Ingresa un valor de X" disabled>
-    <button onclick="predecir()" disabled id="btnPredecir">Predecir</button>
+
+    <canvas id="grafico" width="600" height="300"></canvas>
+    <p id="perdidas"></p>
+    <p id="lossStats"></p>
+
+    <input type="text" id="inputX" placeholder="Ingresa valores de X separados por coma" style="display: none;" disabled>
+    <button onclick="predecir()" disabled id="btnPredecir" style="display: none;">Predecir</button>
 
     <p id="resultado"></p>
 
     <script>
         let model;
 
+        const NUM_EPOCHS = 250; 
+        const CHART_UPDATE_INTERVAL = 10; 
+        let initialLoss = null;
+        let finalLoss = 0;
+
+        const lossChart = new Chart(document.getElementById('grafico'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Pérdida (loss)',
+                    data: [],
+                    borderColor: 'red',
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: false,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Época'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Loss'
+                        }
+                    }
+                }
+            }
+        });
+
         async function entrenarModelo() {
+            lossChart.data.labels = [];
+            lossChart.data.datasets[0].data = [];
+            lossChart.update();
+            document.getElementById('lossStats').innerHTML = "";
+            document.getElementById('perdidas').innerText = "";
+            document.getElementById('resultado').innerText = "";
+            initialLoss = null; 
+            finalLoss = 0;    
+
             model = tf.sequential();
             model.add(tf.layers.dense({ units: 1, inputShape: [1] }));
             model.compile({ loss: 'meanSquaredError', optimizer: 'sgd' });
@@ -53,34 +102,83 @@
             const ys = tf.tensor2d([-6, -4, -2, 0, 2, 4, 6, 8, 10], [9, 1]);
 
             await model.fit(xs, ys, {
-                epochs: 350,
+                epochs: NUM_EPOCHS, 
                 callbacks: {
+                    onTrainBegin: (logs) => {
+                        document.getElementById('estado').innerText = "Iniciando entrenamiento...";
+                        document.getElementById('inputX').style.display = 'none';
+                        document.getElementById('inputX').disabled = true;
+                        document.getElementById('btnPredecir').style.display = 'none';
+                        document.getElementById('btnPredecir').disabled = true;
+                    },
                     onEpochEnd: (epoch, logs) => {
-                        if (epoch % 50 === 0) {
-                            document.getElementById('estado').innerText = `Entrenando... Época: ${epoch}`;
+                        if (epoch === 0) {
+                            initialLoss = logs.loss;
                         }
+                        finalLoss = logs.loss; 
+
+                        // Update chart, and status text for the first epoch, interval epochs, and the last epoch
+                        if (epoch === 0 || (epoch + 1) % CHART_UPDATE_INTERVAL === 0 || epoch === NUM_EPOCHS - 1) {
+                            lossChart.data.labels.push(epoch + 1); // Use 1-based epoch for display
+                            lossChart.data.datasets[0].data.push(logs.loss);
+                            lossChart.update();
+                            document.getElementById('estado').innerText = `Entrenando... Época: ${epoch + 1}/${NUM_EPOCHS}`;
+                        }
+                        
+                        document.getElementById('perdidas').innerText = `Pérdida actual (Época ${epoch + 1}): ${logs.loss.toFixed(4)}`;
                     },
                     onTrainEnd: () => {
                         document.getElementById('estado').innerText = "✅ Entrenamiento finalizado. Modelo listo para usar.";
-                        document.getElementById('inputX').disabled = false;
-                        document.getElementById('btnPredecir').disabled = false;
+                        
+                        const inputEl = document.getElementById('inputX');
+                        const buttonEl = document.getElementById('btnPredecir');
+                        inputEl.style.display = 'inline-block'; 
+                        inputEl.disabled = false;
+                        buttonEl.style.display = 'inline-block';
+                        buttonEl.disabled = false;
+
+                        let lossReductionPercentage = 0;
+                        let reductionText = 'N/A';
+
+                        if (initialLoss !== null) {
+                            if (initialLoss !== 0) {
+                                lossReductionPercentage = ((initialLoss - finalLoss) / initialLoss) * 100;
+                                reductionText = `${lossReductionPercentage.toFixed(2)}%`;
+                            } else if (finalLoss === 0) {
+                                reductionText = "0.00% (pérdida ya era 0)";
+                            } else {
+                                reductionText = `Aumento desde 0 (final: ${finalLoss.toFixed(4)})`;
+                            }
+                        }
+
+                        document.getElementById('lossStats').innerHTML =
+                            `Pérdida Inicial (Época 1): ${initialLoss !== null ? initialLoss.toFixed(4) : 'N/A'}<br>` +
+                            `Pérdida Final (Época ${NUM_EPOCHS}): ${finalLoss.toFixed(4)}<br>` +
+                            `Reducción de Pérdida: ${reductionText}`;
                     }
                 }
             });
         }
 
         async function predecir() {
-            const xInput = parseFloat(document.getElementById('inputX').value);
-            if (isNaN(xInput)) {
-                document.getElementById('resultado').innerText = "Por favor, ingresa un número válido.";
+            const inputStr = document.getElementById('inputX').value;
+            const valoresX = inputStr.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+
+            if (valoresX.length === 0) {
+                document.getElementById('resultado').innerText = "Por favor, ingresa uno o más números válidos.";
                 return;
             }
 
-            const inputTensor = tf.tensor2d([xInput], [1, 1]);
+            const inputTensor = tf.tensor2d(valoresX, [valoresX.length, 1]);
             const prediction = model.predict(inputTensor);
-            const yValue = (await prediction.data())[0];
+            const valoresY = await prediction.data();
 
-            document.getElementById('resultado').innerText = `Para x = ${xInput}, y = ${yValue.toFixed(2)}`;
+            let resultadoTexto = "";
+            valoresX.forEach((x, i) => {
+                resultadoTexto += `Para x = ${x}, y ≈ ${valoresY[i].toFixed(2)}\n`;
+            });
+
+            document.getElementById('resultado').innerText = resultadoTexto;
         }
 
         entrenarModelo();
